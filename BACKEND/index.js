@@ -1,9 +1,12 @@
-// server/index.js
+// BACKEND/index.js
 import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import connectDB from './config/db.js';
-
+// Importar rutas
+import productRoutes from './routes/productRoutes.js'; // <-- Importaste 'productRoutes'
+import saleRoutes from './routes/salesRoutes.js';
+import clientRoutes from './routes/clientsRoutes.js';
 // Cargar variables de entorno
 dotenv.config();
 
@@ -24,7 +27,7 @@ app.get('/', (req, res) => {
 // Definir Rutas (lo haremos más adelante)
 app.use('/api/products', productRoutes);
 app.use('/api/sales', saleRoutes);
-// app.use('/api/users', userRoutes);
+app.use('/api/clients', clientRoutes);
 
 const PORT = process.env.PORT || 4000;
 
