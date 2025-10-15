@@ -1,17 +1,48 @@
-// server/models/Product.js
+// backend/models/Product.js
+
 import mongoose from 'mongoose';
 
 const productSchema = new mongoose.Schema({
-  name: { type: String, required: true, trim: true },
-  sku: { type: String, required: true, unique: true }, // Código del producto
-  description: { type: String },
-  purchasePrice: { type: Number, required: true },
-  salePrice: { type: Number, required: true },
-  stock: { type: Number, required: true, default: 0 },
-  category: { type: String },
-  // Otros campos que necesites...
+  // "Nombre"
+  name: {
+    type: String,
+    required: [true, 'El nombre del producto es obligatorio'],
+    trim: true,
+    unique: true
+  },
+  // "Categoria"
+  category: {
+    type: String,
+    trim: true
+  },
+  // "Descripcion"
+  description: {
+    type: String,
+    trim: true
+  },
+  // "Precio adquisicion"
+  acquisitionPrice: {
+    type: Number,
+    required: [true, 'El precio de adquisición es obligatorio']
+  },
+  // "Precio de venta"
+  salePrice: {
+    type: Number,
+    required: [true, 'El precio de venta es obligatorio']
+  },
+  // "stock"
+  stock: {
+    type: Number,
+    required: true,
+    default: 0
+  },
+  // "url" (para imagen)
+  imageUrl: {
+    type: String,
+    trim: true
+  }
 }, {
-  timestamps: true // Añade createdAt y updatedAt automáticamente
+  timestamps: true
 });
 
 const Product = mongoose.model('Product', productSchema);
