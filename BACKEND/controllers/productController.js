@@ -33,13 +33,30 @@ export const createProduct = async (req, res) => {
  */
 export const getProducts = async (req, res) => {
   try {
-    const products = await Product.find({});
-    res.status(200).json(products);
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const search = req.query.search || '';
+
+    // Creamos un filtro de búsqueda. 'i' para que sea case-insensitive.
+    const query = search ? { name: { $regex: search, $options: 'i' } } : {};
+
+    const products = await Product.find(query)
+      .limit(limit) // Limita el número de resultados por página
+      .skip((page - 1) * limit) // Salta los documentos de páginas anteriores
+      .sort({ createdAt: -1 }); // Opcional: muestra los más nuevos primero
+
+    // Obtenemos el total de documentos que coinciden con la búsqueda (para la paginación)
+    const total = await Product.countDocuments(query);
+
+    res.json({
+      products,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page,
+    });
   } catch (error) {
-    res.status(500).json({ message: 'Error del servidor', error: error.message });
+    res.status(500).json({ message: 'Error del servidor', error });
   }
 };
-
 /**
  * @desc    Obtener un producto por su ID
  * @route   GET /api/products/:id

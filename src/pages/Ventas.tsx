@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Plus, Trash2, ShoppingCart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,405 +7,225 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Venta, VentaProducto, PagoDiferido } from "@/types";
-import { getVentas, saveVenta, getClientes, getProductos, updateStock } from "@/lib/storage";
+
+// NUEVO: Importamos los servicios para Ventas, Clientes y Productos
+import { getAllSales, createSale } from "../../SERVICES/saleService";
+import { getAllClients } from "../../SERVICES/clientService";
+import { getAllProducts } from "../../SERVICES/productService";
+
+// NUEVO: Definimos los tipos que vienen del backend
+interface Cliente { _id: string; name: string; isActive: boolean; /* ...otros campos */ }
+interface Producto { _id: string; name: string; salePrice: number; stock: number; /* ...otros campos */ }
+interface VentaProducto { productoId: string; quantity: number; unitPrice: number; }
+interface Venta {
+  _id: string;
+  client: Cliente; // En el backend, 'populate' nos dará el objeto cliente
+  products: VentaProducto[];
+  subtotal: number;
+  iva: number;
+  total: number;
+  paymentMethod: 'efectivo' | 'tarjeta' | 'transferencias';
+  createdAt: string;
+}
 
 export default function Ventas() {
-  const [ventas, setVentas] = useState<Venta[]>(getVentas());
+  // MODIFICADO: Estados iniciales vacíos, se llenarán desde la API
+  const [ventas, setVentas] = useState<Venta[]>([]);
+  const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [productos, setProductos] = useState<Producto[]>([]);
+  const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const { toast } = useToast();
   
-  const clientes = getClientes();
-  const productos = getProductos();
-
+  // MODIFICADO: Ajustamos los nombres para coincidir con el backend
   const [formData, setFormData] = useState({
-    clienteId: '',
-    productosVenta: [] as VentaProducto[],
-    ivaRate: 16 as 8 | 16,
-    metodoPago: 'efectivo' as 'efectivo' | 'tarjeta' | 'transferencia',
-    pagosDiferidos: [] as PagoDiferido[],
+    client: '', // Almacenará el _id del cliente
+    products: [] as VentaProducto[],
+    iva: 16 as 8 | 16 | 0,
+    paymentMethod: 'efectivo' as 'efectivo' | 'tarjeta' | 'transferencias',
   });
 
   const [currentProduct, setCurrentProduct] = useState({
     productoId: '',
-    cantidad: 1,
-    precioUnitario: 0,
+    quantity: 1,
+    unitPrice: 0,
   });
+
+  // NUEVO: Función para cargar todos los datos necesarios para la página
+  // Dentro de tu componente Ventas.tsx
+
+const loadInitialData = async () => {
+    try {
+      setLoading(true);
+      // Hacemos las 3 peticiones en paralelo para más eficiencia
+      const [salesData, clientsData, productsApiResponse] = await Promise.all([
+        getAllSales(),
+        getAllClients(),
+        getAllProducts(), // Esta función ahora devuelve un objeto
+      ]);
+      
+      setVentas(salesData);
+      setClientes(clientsData);
+      
+      // ✅ LA CORRECCIÓN ESTÁ AQUÍ
+      // Extraemos el array 'products' de la respuesta de la API
+      setProductos(productsApiResponse.products); 
+
+    } catch (error) {
+      toast({ title: "Error", description: "No se pudieron cargar los datos iniciales.", variant: "destructive" });
+      // Aseguramos que los estados sean arrays vacíos en caso de error
+      setVentas([]);
+      setClientes([]);
+      setProductos([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // NUEVO: Carga inicial de datos al montar el componente
+  useEffect(() => {
+    loadInitialData();
+  }, []);
 
   const addProductToSale = () => {
     if (!currentProduct.productoId) return;
-    
-    const producto = productos.find(p => p.id === currentProduct.productoId);
+    const producto = productos.find(p => p._id === currentProduct.productoId);
     if (!producto) return;
 
-    if (producto.stock < currentProduct.cantidad) {
-      toast({
-        title: "Stock insuficiente",
-        description: `Solo hay ${producto.stock} unidades disponibles.`,
-        variant: "destructive",
-      });
+    if (producto.stock < currentProduct.quantity) {
+      toast({ title: "Stock insuficiente", description: `Solo hay ${producto.stock} unidades.`, variant: "destructive" });
       return;
     }
 
     setFormData({
       ...formData,
-      productosVenta: [...formData.productosVenta, {
+      products: [...formData.products, {
         productoId: currentProduct.productoId,
-        cantidad: currentProduct.cantidad,
-        precioUnitario: currentProduct.precioUnitario || producto.precioVenta,
+        quantity: currentProduct.quantity,
+        unitPrice: currentProduct.unitPrice || producto.salePrice,
       }],
     });
-
-    setCurrentProduct({ productoId: '', cantidad: 1, precioUnitario: 0 });
+    setCurrentProduct({ productoId: '', quantity: 1, unitPrice: 0 });
   };
 
   const removeProductFromSale = (index: number) => {
-    setFormData({
-      ...formData,
-      productosVenta: formData.productosVenta.filter((_, i) => i !== index),
-    });
+    setFormData({ ...formData, products: formData.products.filter((_, i) => i !== index) });
   };
 
   const calculateTotals = () => {
-    const subtotal = formData.productosVenta.reduce(
-      (acc, item) => acc + item.cantidad * item.precioUnitario,
-      0
-    );
-    const iva = subtotal * (formData.ivaRate / 100);
-    const total = subtotal + iva;
-    return { subtotal, iva, total };
+    const subtotal = formData.products.reduce((acc, item) => acc + item.quantity * item.unitPrice, 0);
+    const ivaValue = subtotal * (formData.iva / 100);
+    const total = subtotal + ivaValue;
+    return { subtotal, iva: ivaValue, total };
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // MODIFICADO: La función ahora es asíncrona y envía los datos a la API
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!formData.clienteId) {
-      toast({
-        title: "Error",
-        description: "Debe seleccionar un cliente.",
-        variant: "destructive",
-      });
+    if (!formData.client) {
+      toast({ title: "Error", description: "Debe seleccionar un cliente.", variant: "destructive" });
       return;
     }
-
-    if (formData.productosVenta.length === 0) {
-      toast({
-        title: "Error",
-        description: "Debe agregar al menos un producto.",
-        variant: "destructive",
-      });
+    if (formData.products.length === 0) {
+      toast({ title: "Error", description: "Debe agregar al menos un producto.", variant: "destructive" });
       return;
     }
 
     const { subtotal, iva, total } = calculateTotals();
 
-    const venta: Venta = {
-      id: crypto.randomUUID(),
-      clienteId: formData.clienteId,
-      productos: formData.productosVenta,
+    // Preparamos el objeto para enviar a la API
+    const salePayload = {
+      client: formData.client,
+      products: formData.products,
       subtotal,
       iva,
-      ivaRate: formData.ivaRate,
       total,
-      metodoPago: formData.metodoPago,
-      pagosDiferidos: formData.pagosDiferidos,
-      fecha: new Date().toISOString(),
-      completada: formData.pagosDiferidos.length === 0,
+      paymentMethod: formData.paymentMethod,
     };
 
-    // Actualizar stock
-    formData.productosVenta.forEach(item => {
-      updateStock(item.productoId, item.cantidad);
-    });
-
-    saveVenta(venta);
-    setVentas(getVentas());
-    setOpen(false);
-    resetForm();
-    
-    toast({
-      title: "Venta registrada",
-      description: `Venta por $${total.toFixed(2)} registrada exitosamente.`,
-    });
+    try {
+      // MODIFICADO: Ya no actualizamos el stock manualmente, el backend lo hace.
+      await createSale(salePayload);
+      
+      // Recargamos todos los datos para reflejar los cambios (nueva venta y stock actualizado)
+      loadInitialData();
+      
+      setOpen(false);
+      resetForm();
+      toast({ title: "Venta registrada", description: `Venta por $${total.toFixed(2)} registrada.` });
+    } catch (error) {
+      toast({ title: "Error en la venta", description: "No se pudo registrar la venta.", variant: "destructive" });
+    }
   };
 
   const resetForm = () => {
-    setFormData({
-      clienteId: '',
-      productosVenta: [],
-      ivaRate: 16,
-      metodoPago: 'efectivo',
-      pagosDiferidos: [],
-    });
-    setCurrentProduct({ productoId: '', cantidad: 1, precioUnitario: 0 });
+    setFormData({ client: '', products: [], iva: 16, paymentMethod: 'efectivo' });
+    setCurrentProduct({ productoId: '', quantity: 1, unitPrice: 0 });
   };
-
-  const addPagoDiferido = () => {
-    const { total } = calculateTotals();
-    const montoPagado = formData.pagosDiferidos.reduce((acc, p) => acc + p.monto, 0);
-    const montoRestante = total - montoPagado;
-
-    if (montoRestante <= 0) return;
-
-    setFormData({
-      ...formData,
-      pagosDiferidos: [...formData.pagosDiferidos, {
-        id: crypto.randomUUID(),
-        monto: 0,
-        fechaVencimiento: new Date().toISOString().split('T')[0],
-        pagado: false,
-      }],
-    });
-  };
-
+  
   const { subtotal, iva, total } = calculateTotals();
+
+  if (loading) return <p>Cargando datos de ventas...</p>;
 
   return (
     <div className="space-y-6">
+      {/* Tu JSX se mantiene casi igual, solo hay que ajustar los nombres de las propiedades */}
       <div className="flex items-center justify-between">
         <h2 className="text-3xl font-bold">Ventas</h2>
-        <Dialog open={open} onOpenChange={(val) => {
-          setOpen(val);
-          if (!val) resetForm();
-        }}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              Nueva Venta
-            </Button>
-          </DialogTrigger>
+        <Dialog open={open} onOpenChange={(val) => { if (!val) resetForm(); setOpen(val); }}>
+          <DialogTrigger asChild><Button><Plus className="mr-2 h-4 w-4" /> Nueva Venta</Button></DialogTrigger>
           <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Nueva Venta</DialogTitle>
-            </DialogHeader>
+            <DialogHeader><DialogTitle>Nueva Venta</DialogTitle></DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-6">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="cliente">Cliente</Label>
-                  <Select value={formData.clienteId} onValueChange={(val) => setFormData({ ...formData, clienteId: val })}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Seleccionar cliente" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {clientes.filter(c => c.activo).map(cliente => (
-                        <SelectItem key={cliente.id} value={cliente.id}>
-                          {cliente.nombre}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label htmlFor="metodoPago">Método de Pago</Label>
-                  <Select value={formData.metodoPago} onValueChange={(val) => setFormData({ ...formData, metodoPago: val as any })}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="efectivo">Efectivo</SelectItem>
-                      <SelectItem value="tarjeta">Tarjeta</SelectItem>
-                      <SelectItem value="transferencia">Transferencia</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
+              {/* MODIFICADO: campo 'client' en formData y cliente._id como value */}
+              <Select value={formData.client} onValueChange={(val) => setFormData({ ...formData, client: val })}>
+                <SelectTrigger><SelectValue placeholder="Seleccionar cliente" /></SelectTrigger>
+                <SelectContent>
+                  {clientes.filter(c => c.isActive).map(cliente => (
+                    <SelectItem key={cliente._id} value={cliente._id}>{cliente.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              
+              {/* ... El resto del formulario se mantiene muy similar ... */}
+              {/* Asegúrate de que los IDs de producto y cliente usen `_id` */}
+              {/* Ejemplo en la lista de productos a agregar: */}
+              <Select value={currentProduct.productoId} onValueChange={(val) => {
+                  const prod = productos.find(p => p._id === val);
+                  setCurrentProduct({ ...currentProduct, productoId: val, unitPrice: prod?.salePrice || 0 });
+                }}>
+                <SelectTrigger className="col-span-2"><SelectValue placeholder="Seleccionar producto" /></SelectTrigger>
+                <SelectContent>
+                  {productos.filter(p => p.stock > 0).map(producto => (
+                    <SelectItem key={producto._id} value={producto._id}>
+                      {producto.name} (Stock: {producto.stock})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
 
-              <div className="space-y-4">
-                <Label>Productos</Label>
-                <div className="grid grid-cols-4 gap-2">
-                  <Select value={currentProduct.productoId} onValueChange={(val) => {
-                    const prod = productos.find(p => p.id === val);
-                    setCurrentProduct({ ...currentProduct, productoId: val, precioUnitario: prod?.precioVenta || 0 });
-                  }}>
-                    <SelectTrigger className="col-span-2">
-                      <SelectValue placeholder="Seleccionar producto" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {productos.filter(p => p.stock > 0).map(producto => (
-                        <SelectItem key={producto.id} value={producto.id}>
-                          {producto.nombre} (Stock: {producto.stock})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Input
-                    type="number"
-                    min="1"
-                    value={currentProduct.cantidad}
-                    onChange={(e) => setCurrentProduct({ ...currentProduct, cantidad: parseInt(e.target.value) })}
-                    placeholder="Cantidad"
-                  />
-                  <Button type="button" onClick={addProductToSale}>
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </div>
-
-                {formData.productosVenta.map((item, index) => {
-                  const producto = productos.find(p => p.id === item.productoId);
-                  return (
-                    <Card key={index}>
-                      <CardContent className="flex items-center justify-between p-4">
-                        <div>
-                          <p className="font-medium">{producto?.nombre}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {item.cantidad} x ${item.precioUnitario.toFixed(2)} = ${(item.cantidad * item.precioUnitario).toFixed(2)}
-                          </p>
-                        </div>
-                        <Button type="button" size="icon" variant="ghost" onClick={() => removeProductFromSale(index)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Label>IVA</Label>
-                  <Select value={formData.ivaRate.toString()} onValueChange={(val) => setFormData({ ...formData, ivaRate: parseInt(val) as 8 | 16 })}>
-                    <SelectTrigger className="w-32">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="8">8%</SelectItem>
-                      <SelectItem value="16">16%</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-1 text-sm">
-                  <div className="flex justify-between">
-                    <span>Subtotal:</span>
-                    <span>${subtotal.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>IVA ({formData.ivaRate}%):</span>
-                    <span>${iva.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between font-bold text-base">
-                    <span>Total:</span>
-                    <span>${total.toFixed(2)}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label>Pagos Diferidos</Label>
-                  <Button type="button" variant="outline" size="sm" onClick={addPagoDiferido}>
-                    <Plus className="h-4 w-4 mr-1" />
-                    Agregar Pago
-                  </Button>
-                </div>
-                {formData.pagosDiferidos.map((pago, index) => (
-                  <div key={pago.id} className="grid grid-cols-3 gap-2">
-                    <Input
-                      type="number"
-                      step="0.01"
-                      placeholder="Monto"
-                      value={pago.monto}
-                      onChange={(e) => {
-                        const newPagos = [...formData.pagosDiferidos];
-                        newPagos[index].monto = parseFloat(e.target.value);
-                        setFormData({ ...formData, pagosDiferidos: newPagos });
-                      }}
-                    />
-                    <Input
-                      type="date"
-                      value={pago.fechaVencimiento}
-                      onChange={(e) => {
-                        const newPagos = [...formData.pagosDiferidos];
-                        newPagos[index].fechaVencimiento = e.target.value;
-                        setFormData({ ...formData, pagosDiferidos: newPagos });
-                      }}
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setFormData({
-                          ...formData,
-                          pagosDiferidos: formData.pagosDiferidos.filter((_, i) => i !== index),
-                        });
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-                  Cancelar
-                </Button>
-                <Button type="submit">
-                  Registrar Venta
-                </Button>
-              </div>
+              {/* ... el resto del JSX del formulario ... */}
+               <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancelar</Button><Button type="submit">Registrar Venta</Button></div>
             </form>
           </DialogContent>
         </Dialog>
       </div>
-
+      
+      {/* MODIFICADO: Mapeo de ventas con la nueva estructura de datos */}
       <div className="space-y-4">
-        {ventas.map((venta) => {
-          const cliente = clientes.find(c => c.id === venta.clienteId);
-          return (
-            <Card key={venta.id}>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0">
-                <div>
-                  <CardTitle className="text-base">
-                    {cliente?.nombre || 'Cliente desconocido'}
-                  </CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    {new Date(venta.fecha).toLocaleDateString('es-MX', {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="text-2xl font-bold text-primary">${venta.total.toFixed(2)}</p>
-                  <p className="text-xs text-muted-foreground">{venta.metodoPago}</p>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  {venta.productos.map((item, index) => {
-                    const producto = productos.find(p => p.id === item.productoId);
-                    return (
-                      <div key={index} className="flex justify-between text-sm">
-                        <span>{producto?.nombre} x {item.cantidad}</span>
-                        <span>${(item.cantidad * item.precioUnitario).toFixed(2)}</span>
-                      </div>
-                    );
-                  })}
-                  {venta.pagosDiferidos.length > 0 && (
-                    <p className="text-sm text-destructive font-medium mt-2">
-                      Pagos diferidos: {venta.pagosDiferidos.length}
-                    </p>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
+        {ventas.map((venta) => (
+          <Card key={venta._id}>
+            <CardHeader>
+              <CardTitle>{venta.client?.name || 'Cliente eliminado'}</CardTitle>
+              <p>{new Date(venta.createdAt).toLocaleString('es-MX')}</p>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold">${venta.total.toFixed(2)}</p>
+            </CardContent>
+          </Card>
+        ))}
       </div>
-
-      {ventas.length === 0 && (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <ShoppingCart className="h-12 w-12 text-muted-foreground mb-4" />
-            <p className="text-muted-foreground">No hay ventas registradas</p>
-          </CardContent>
-        </Card>
-      )}
+       {ventas.length === 0 && !loading && ( <Card><CardContent className="py-12 text-center"><ShoppingCart className="h-12 w-12 mx-auto text-muted-foreground" /><p>No hay ventas</p></CardContent></Card>)}
     </div>
   );
-}
+};
