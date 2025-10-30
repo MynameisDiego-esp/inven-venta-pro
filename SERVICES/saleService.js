@@ -21,6 +21,7 @@ export const getAllSales = async () => {
  * El backend se encargará de actualizar el stock.
  */
 export const createSale = async (saleData) => {
+  console.log("Payload que SE ENVIARÁ para crear VENTA:", saleData);
   try {
     const response = await apiClient.post('/sales', saleData);
     return response.data;

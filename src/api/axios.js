@@ -1,16 +1,16 @@
+// frontend/SERVICES/apiClient.js
+
 import axios from 'axios';
 
-// Creamos una instancia de Axios con una configuración base.
+// 🛑 Replace 'localhost' with the IP of the server running Node.js 
+const SERVER_IP = '192.168.100.19'; // Use your confirmed server IP
+const PORT = 4000;
+
 const apiClient = axios.create({
-  // Esta es la URL base de tu backend.
-  // Todas las peticiones se harán a esta dirección.
-  baseURL: 'http://localhost:4000/api',
-  
-  // Opcional: puedes añadir cabeceras que se enviarán en todas las peticiones.
-  headers: {
-    'Content-Type': 'application/json'
-  }
+  baseURL: `http://${SERVER_IP}:${PORT}/api`, // Corrected URL
+  headers: {
+    'Content-Type': 'application/json'
+  }
 });
 
-// Exportamos la instancia para poder usarla en otros archivos (como tus servicios).
 export default apiClient;
