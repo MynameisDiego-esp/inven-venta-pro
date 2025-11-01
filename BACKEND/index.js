@@ -13,7 +13,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // Importar configuración y rutas
-import connectDB from './config/db.js';
+import connectDB from './config/db.js'; 
 import productRoutes from './routes/productRoutes.js';
 import saleRoutes from './routes/salesRoutes.js';
 import clientRoutes from './routes/clientsRoutes.js';
@@ -25,6 +25,16 @@ dotenv.config();
 connectDB();
 
 const app = express();
+
+// 🧱 Servir archivos estáticos del frontend
+const frontendPath = path.join(__dirname, "../frontend/dist");
+app.use(express.static(frontendPath));
+
+// Cualquier ruta que no coincida con API → devuelve index.html
+app.get("*", (req, res) => {
+  res.sendFile(path.join(frontendPath, "index.html"));
+});
+
 const PORT = process.env.PORT || 4000;
 
 // Middlewares
