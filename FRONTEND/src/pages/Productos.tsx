@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react"; // MODIFICADO: useEffect es necesario
-import { Plus, Pencil, Trash2, Package } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Plus, Pencil, Trash2, Package, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -8,10 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 
-// NUEVO: Importamos las funciones del servicio que se comunican con la API
 import { getAllProducts, createProduct, updateProduct, deleteProduct } from "../../SERVICES/productService";
 
-// MODIFICADO: Definimos la estructura del producto que viene del backend
 interface Producto {
   _id: string;
   name: string;
@@ -24,17 +22,17 @@ interface Producto {
 }
 
 export default function Productos() {
-  // MODIFICADO: El estado inicial es un array vacío y añadimos estado de carga
   const [productos, setProductos] = useState<Producto[]>([]);
-  const [currentPage, setCurrentPage] = useState(1); // Añade estados para paginación
-  const [totalPages, setTotalPages] = useState(1);
+  const [currentPage, setCurrentPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
+  const [searchInput, setSearchInput] = useState(''); // Input temporal para el buscador
   const [loading, setLoading] = useState(true);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalProducts, setTotalProducts] = useState(0);
   const [open, setOpen] = useState(false);
   const [editingProducto, setEditingProducto] = useState<Producto | null>(null);
   const { toast } = useToast();
 
-  // MODIFICADO: El estado del formulario ahora coincide con los nombres de la API
   const [formData, setFormData] = useState({
     name: '',
     category: '',
@@ -45,56 +43,80 @@ export default function Productos() {
     imageUrl: '',
   });
 
-  // NUEVO: Función para cargar o recargar los productos desde la API
   const loadProducts = async () => {
     try {
       setLoading(true);
-      // Asumimos que tu servicio ahora puede tomar la página y el término de búsqueda
-      const data = await getAllProducts(currentPage, searchTerm);
+      const data = await getAllProducts(currentPage, searchTerm, 24);
       
-      // ✅ LA CORRECCIÓN ESTÁ AQUÍ
-      // En lugar de guardar `data`, guarda la propiedad `products` de `data` en el estado
-      setProductos(data.products); 
-      setTotalPages(data.totalPages);
+      console.log("API Response:", data); // Para debugging
+      
+      // Manejar diferentes estructuras de respuesta de la API
+      if (data.products && Array.isArray(data.products)) {
+        // Si la API devuelve { products: [...], totalPages: X, total: Y }
+        setProductos(data.products);
+        setTotalPages(data.totalPages || 1);
+        setTotalProducts(data.total || data.products.length);
+      } else if (Array.isArray(data)) {
+        // Si la API devuelve directamente un array [...]
+        setProductos(data);
+        setTotalPages(1);
+        setTotalProducts(data.length);
+      } else {
+        setProductos([]);
+        setTotalPages(1);
+        setTotalProducts(0);
+      }
       
     } catch (error) {
+      console.error("Error loading products:", error);
       toast({
         title: "Error",
         description: "No se pudieron cargar los productos.",
         variant: "destructive",
       });
-      // Es una buena práctica asegurar que productos sea un array incluso en caso de error
       setProductos([]); 
+      setTotalPages(1);
+      setTotalProducts(0);
     } finally {
       setLoading(false);
     }
   };
 
-  // NUEVO: useEffect para la carga inicial de datos
   useEffect(() => {
     loadProducts();
   }, [currentPage, searchTerm]);
 
-  // MODIFICADO: La función ahora es asíncrona y llama a la API
+  // Manejador de búsqueda
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    setSearchTerm(searchInput);
+    setCurrentPage(1); // Reset a la primera página al buscar
+  };
+
+  // Limpiar búsqueda
+  const clearSearch = () => {
+    setSearchInput('');
+    setSearchTerm('');
+    setCurrentPage(1);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       if (editingProducto) {
-        // Lógica de Actualización
         await updateProduct(editingProducto._id, formData);
         toast({
           title: "Producto actualizado",
           description: `${formData.name} ha sido actualizado exitosamente.`,
         });
       } else {
-        // Lógica de Creación
         await createProduct(formData);
         toast({
           title: "Producto creado",
           description: `${formData.name} ha sido registrado exitosamente.`,
         });
       }
-      loadProducts(); // Recargamos la lista de productos
+      loadProducts();
       setOpen(false);
       resetForm();
     } catch (error) {
@@ -106,7 +128,6 @@ export default function Productos() {
     }
   };
 
-  // MODIFICADO: Prepara el formulario para editar, ajustando los nombres de los campos
   const handleEdit = (producto: Producto) => {
     setEditingProducto(producto);
     setFormData({
@@ -121,12 +142,11 @@ export default function Productos() {
     setOpen(true);
   };
 
-  // MODIFICADO: La función ahora es asíncrona y llama a la API
   const handleDelete = async (id: string) => {
     if (confirm('¿Está seguro de eliminar este producto?')) {
       try {
         await deleteProduct(id);
-        loadProducts(); // Recargamos la lista
+        loadProducts();
         toast({
           title: "Producto eliminado",
           description: "El producto ha sido eliminado exitosamente.",
@@ -154,9 +174,12 @@ export default function Productos() {
     setEditingProducto(null);
   };
 
-  // NUEVO: Renderizado condicional mientras cargan los datos
   if (loading) {
-    return <p>Cargando productos...</p>;
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-lg">Cargando productos...</p>
+      </div>
+    );
   }
 
   return (
@@ -179,7 +202,6 @@ export default function Productos() {
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                {/* MODIFICADO: Nombres de los campos en el formulario */}
                 <div>
                   <Label htmlFor="name">Nombre</Label>
                   <Input id="name" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} required />
@@ -218,12 +240,46 @@ export default function Productos() {
         </Dialog>
       </div>
 
+      {/* BARRA DE BÚSQUEDA */}
+      <Card>
+        <CardContent className="pt-6">
+          <form onSubmit={handleSearch} className="flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <Input
+                type="text"
+                placeholder="Buscar por nombre, categoría o descripción..."
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            <Button type="submit">Buscar</Button>
+            {searchTerm && (
+              <Button type="button" variant="outline" onClick={clearSearch}>
+                Limpiar
+              </Button>
+            )}
+          </form>
+          
+          {/* Información de resultados */}
+          <div className="mt-3 text-sm text-muted-foreground">
+            {searchTerm ? (
+              <span>
+                Mostrando {productos.length} resultado(s) de {totalProducts} para "{searchTerm}"
+              </span>
+            ) : (
+              <span>Total de productos: {totalProducts}</span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* GRID DE PRODUCTOS */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {productos.map((producto) => (
-          // MODIFICADO: de producto.id a producto._id
           <Card key={producto._id} className="overflow-hidden">
             <div className="aspect-square bg-muted relative">
-              {/* MODIFICADO: de producto.imagen a producto.imageUrl */}
               {producto.imageUrl ? (
                 <img src={producto.imageUrl} alt={producto.name} className="w-full h-full object-cover" />
               ) : (
@@ -233,27 +289,26 @@ export default function Productos() {
               )}
             </div>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              {/* MODIFICADO: de producto.nombre a producto.name */}
               <CardTitle className="text-sm font-medium">{producto.name}</CardTitle>
               <div className="flex gap-1">
-                <Button size="icon" variant="ghost" onClick={() => handleEdit(producto)}><Pencil className="h-4 w-4" /></Button>
-                {/* MODIFICADO: de producto.id a producto._id */}
-                <Button size="icon" variant="ghost" onClick={() => handleDelete(producto._id)}><Trash2 className="h-4 w-4" /></Button>
+                <Button size="icon" variant="ghost" onClick={() => handleEdit(producto)}>
+                  <Pencil className="h-4 w-4" />
+                </Button>
+                <Button size="icon" variant="ghost" onClick={() => handleDelete(producto._id)}>
+                  <Trash2 className="h-4 w-4" />
+                </Button>
               </div>
             </CardHeader>
             <CardContent>
               <div className="space-y-1 text-sm">
-                {/* MODIFICADO: de producto.descripcion a producto.description */}
                 <p className="text-xs text-muted-foreground line-clamp-2">{producto.description}</p>
                 <p className="text-muted-foreground">
-                  {/* MODIFICADO: de producto.precioVenta a producto.salePrice */}
                   <span className="font-medium">Precio:</span> ${producto.salePrice.toFixed(2)}
                 </p>
                 <p className="text-muted-foreground">
                   <span className="font-medium">Stock:</span> {producto.stock} unidades
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {/* MODIFICADO: de producto.categoria a producto.category */}
                   {producto.category}
                 </p>
               </div>
@@ -262,13 +317,39 @@ export default function Productos() {
         ))}
       </div>
 
+      {/* MENSAJE CUANDO NO HAY PRODUCTOS */}
       {productos.length === 0 && (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <Package className="h-12 w-12 text-muted-foreground mb-4" />
-            <p className="text-muted-foreground">No hay productos registrados</p>
+            <p className="text-muted-foreground">
+              {searchTerm ? `No se encontraron productos para "${searchTerm}"` : 'No hay productos registrados'}
+            </p>
           </CardContent>
         </Card>
+      )}
+
+      {/* PAGINACIÓN */}
+      {productos.length > 0 && totalPages > 1 && (
+        <div className="flex justify-center items-center gap-3 mt-6">
+          <Button 
+            variant="outline"
+            disabled={currentPage === 1}
+            onClick={() => setCurrentPage(currentPage - 1)}
+          >
+            Anterior
+          </Button>
+          <span className="text-sm font-medium">
+            Página {currentPage} de {totalPages}
+          </span>
+          <Button 
+            variant="outline"
+            disabled={currentPage === totalPages}
+            onClick={() => setCurrentPage(currentPage + 1)}
+          >
+            Siguiente
+          </Button>
+        </div>
       )}
     </div>
   );

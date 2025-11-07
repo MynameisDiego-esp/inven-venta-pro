@@ -1,20 +1,19 @@
-import { useState, useEffect } from "react"; // 👈 1. Importar hooks de React
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DollarSign, Users, Package, TrendingUp } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from "recharts";
 
-// 2. Importar los SERVICIOS de API REALES (ajusta la ruta si es necesario)
+// Importar los servicios - NOTA: usar getAllProductsNoPagination para el dashboard
 import { getAllSales } from "../../SERVICES/saleService";
 import { getAllClients } from "../../SERVICES/clientService";
-import { getAllProducts } from "../../SERVICES/productService";
+import { getAllProductsNoPagination } from "../../SERVICES/productService";
 
-// Definir los tipos de datos (¡importante!)
 interface Venta {
   _id: string;
   total: number;
-  createdAt: string; // Asumimos que usas timestamps de Mongoose
+  createdAt: string;
   products: {
-    productoId: string;
+    productoId: any;
     quantity: number;
   }[];
 }
@@ -28,50 +27,58 @@ interface Producto {
   _id: string;
   name: string;
   stock: number;
+  salePrice?: number;
 }
 
-
 const Index = () => {
-  // 3. Crear estados para almacenar los datos de la API
   const [ventas, setVentas] = useState<Venta[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // 4. Usar useEffect para cargar los datos cuando el componente se monta
   useEffect(() => {
     const loadDashboardData = async () => {
       try {
         setLoading(true);
+        
         // Cargar todos los datos en paralelo
+        // ✅ CAMBIO IMPORTANTE: Usar getAllProductsNoPagination
         const [salesData, clientsData, productsData] = await Promise.all([
           getAllSales(),
           getAllClients(),
-          getAllProducts()
+          getAllProductsNoPagination() // 👈 Esta función obtiene TODOS los productos
         ]);
 
-        // Guardar los datos en el estado, extrayendo de la paginación si es necesario
+        console.log("Dashboard data loaded:", {
+          ventas: salesData?.length || 0,
+          clientes: clientsData?.clients?.length || 0,
+          productos: productsData?.length || 0
+        });
+
+        // Guardar los datos en el estado
         setVentas(Array.isArray(salesData) ? salesData : []);
         setClientes(Array.isArray(clientsData?.clients) ? clientsData.clients : []);
-        setProductos(Array.isArray(productsData?.products) ? productsData.products : []);
+        
+        // Verificar productos en detalle
+        const productosArray = Array.isArray(productsData) ? productsData : [];
+        console.log("Productos cargados:", productosArray.length);
+        console.log("Primeros 5 productos:", productosArray.slice(0, 5));
+        setProductos(productosArray);
 
       } catch (error) {
         console.error("Error al cargar los datos del dashboard:", error);
-        // Aquí podrías usar tu 'toast'
       } finally {
         setLoading(false);
       }
     };
 
     loadDashboardData();
-  }, []); // El array vacío asegura que se ejecute solo una vez
+  }, []);
 
-  // --- 5. Lógica de negocio (CORREGIDA con los nombres de campos de MongoDB) ---
-
+  // Lógica de negocio
   const totalVentas = ventas.reduce((acc, venta) => acc + venta.total, 0);
   
   const ventasHoy = ventas.filter(v => {
-    // ✅ CORRECCIÓN: Usar 'createdAt' (de Mongoose) en lugar de 'fecha'
     const fecha = new Date(v.createdAt); 
     const hoy = new Date();
     return fecha.toDateString() === hoy.toDateString();
@@ -85,7 +92,6 @@ const Index = () => {
     const mes = fecha.toLocaleDateString('es-MX', { month: 'short' });
     
     const ventasMes = ventas.filter(v => {
-      // ✅ CORRECCIÓN: Usar 'createdAt'
       const ventaFecha = new Date(v.createdAt); 
       return ventaFecha.getMonth() === fecha.getMonth() && 
              ventaFecha.getFullYear() === fecha.getFullYear();
@@ -95,43 +101,42 @@ const Index = () => {
     return { mes, total };
   });
 
- // --- Productos más vendidos (refactorizado y corregido) ---
-const productosVendidos = new Map<string, number>();
+  // Productos más vendidos (corregido)
+  const productosVendidos = new Map<string, number>();
 
-ventas.forEach(venta => {
-  venta.products.forEach(item => {
-    // Convertir el ObjectId del producto a string (soporta ambos casos)
-    const id = item.productoId?._id?.toString() || item.productoId?.toString();
-    const cantidadVendida = item.quantity || 0;
-    const cantidadActual = productosVendidos.get(id) || 0;
-    productosVendidos.set(id, cantidadActual + cantidadVendida);
+  ventas.forEach(venta => {
+    venta.products.forEach(item => {
+      // Convertir el ObjectId del producto a string
+      const id = item.productoId?._id?.toString() || item.productoId?.toString();
+      const cantidadVendida = item.quantity || 0;
+      const cantidadActual = productosVendidos.get(id) || 0;
+      productosVendidos.set(id, cantidadActual + cantidadVendida);
+    });
   });
-});
 
-const topProductos = Array.from(productosVendidos.entries())
-  .map(([id, cantidad]) => {
-    // Buscar el producto en la lista usando el _id como string
-    const producto = productos.find(p => p._id?.toString() === id);
-    return {
-      nombre: producto?.name || "Desconocido",
-      cantidad,
-      totalVendido: producto ? cantidad * (producto.salePrice || 0) : 0, // opcional
-    };
-  })
-  .sort((a, b) => b.cantidad - a.cantidad)
-  .slice(0, 5);
+  const topProductos = Array.from(productosVendidos.entries())
+    .map(([id, cantidad]) => {
+      const producto = productos.find(p => p._id?.toString() === id);
+      return {
+        nombre: producto?.name || "Desconocido",
+        cantidad,
+        totalVendido: producto ? cantidad * (producto.salePrice || 0) : 0,
+      };
+    })
+    .sort((a, b) => b.cantidad - a.cantidad)
+    .slice(0, 5);
 
-
-  // ✅ CORRECCIÓN: Usar 'isActive' en lugar de 'activo'
   const clientesActivos = clientes.filter(c => c.isActive).length; 
   const productosConStock = productos.filter(p => p.stock > 0).length;
 
-  // 6. Estado de carga
   if (loading) {
-    return <p>Cargando datos del dashboard...</p>;
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-lg">Cargando datos del dashboard...</p>
+      </div>
+    );
   }
 
-  // 7. Renderizado (Tu JSX original ya es correcto)
   return (
     <div className="space-y-6">
       <div>
@@ -234,4 +239,4 @@ const topProductos = Array.from(productosVendidos.entries())
   );
 };
 
-export default Index
+export default Index;

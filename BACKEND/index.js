@@ -1,10 +1,8 @@
-// BACKEND/index.js
 import mongoose from 'mongoose';
 import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import path from 'path';
-// Si estás usando ES modules (import/export), necesitas estas líneas para usar __dirname
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
@@ -18,81 +16,56 @@ import productRoutes from './routes/productRoutes.js';
 import saleRoutes from './routes/salesRoutes.js';
 import clientRoutes from './routes/clientsRoutes.js';
 
-// Cargar variables de entorno
+// --- Configuración Inicial ---
 dotenv.config();
-
-// Conectar a la base de datos
-connectDB();
-
 const app = express();
-
-// 🧱 Servir archivos estáticos del frontend
-const frontendPath = path.join(__dirname, "../frontend/dist");
-app.use(express.static(frontendPath));
-
-// Cualquier ruta que no coincida con API → devuelve index.html
-app.get("*", (req, res) => {
-  res.sendFile(path.join(frontendPath, "index.html"));
-});
-
 const PORT = process.env.PORT || 4000;
 
-// Middlewares
-app.use(cors()); // Habilita CORS para cualquier origen (perfecto para LAN en desarrollo)
+// --- Conexión a la Base de Datos ---
+// Llama a tu función de conexión. 
+// (Eliminé la segunda llamada a mongoose.connect que tenías más abajo,
+// asumiendo que connectDB.js ya maneja esto).
+connectDB(); 
+
+// 1. 🚀 MIDDLEWARES (Deben ir primero)
+app.use(cors()); // Habilita CORS
 app.use(express.json()); // Permite recibir y enviar JSON
-app.use(express.urlencoded({ extended: true })); // Permite recibir datos de formularios  
+app.use(express.urlencoded({ extended: true })); // Permite recibir datos de formularios
 
-console.log('MONGODB_URI:', process.env.MONGODB_URI)
-// Conexión a MongoDB (Usando el driver Mongoose)
-mongoose.connect(process.env.MONGODB_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
-})
-  .then(() => console.log("✅ Conectado a MongoDB"))
-  .catch(error => console.error("❌ Error conectando a MongoDB:", error));
-   
-// Ruta de prueba
-app.get('/', (req, res) => {
-  res.send('API de Inven-Venta-Pro está corriendo!');
-});
-
-
-// Definir Rutas de API
+// 2. 🛣️ RUTAS DE API (Deben ir antes del "atrapa-todo" del frontend)
 app.use('/api/products', productRoutes);
 app.use('/api/sales', saleRoutes);
 app.use('/api/clients', clientRoutes);
 
-// --- Manejo de archivos estáticos y rutas no API ---
+// Ruta de prueba (opcional, pero útil)
+app.get('/api/test', (req, res) => {
+  res.send('¡La API de Inven-Venta-Pro está respondiendo!');
+});
 
-if (process.env.NODE_ENV === "production") {
-    // Servir los archivos estáticos de React
-    app.use(express.static(path.join(__dirname, "client/build")));
-    
-    // Captura cualquier ruta que no sea una de las API, y sirve el index.html de React
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(__dirname, "client/build", "index.html"));
-    });
-}
+// 3. 🖥️ RUTAS DE FRONTEND (Deben ir después de la API)
+const frontendPath = path.join(__dirname, "../frontend/dist");
+app.use(express.static(frontendPath));
 
-// ----------------------------------------------------------------------------------
-// MIDDLEWARE DE MANEJO DE ERRORES (DEBE IR AL FINAL DE LAS RUTAS)
-// ----------------------------------------------------------------------------------
+// El "atrapa-todo" (catch-all) DEBE ser la ÚLTIMA ruta normal.
+// Envía el index.html para cualquier ruta que no sea de API ni un archivo estático.
+app.get("*", (req, res) => {
+  res.sendFile(path.join(frontendPath, "index.html"));
+});
+
+// 4. ❌ MANEJADORES DE ERRORES (Deben ir al FINAL de todo)
 
 // Middleware 404 (Ruta no encontrada)
-// Se ejecuta SOLO si la solicitud no coincidió con NINGUNA de las rutas anteriores.
-// Corrección: Se omite el path ('*') para que Express lo maneje como un catch-all.
 app.use((req, res, next) => {
   res.status(404).json({ message: "Ruta no encontrada" });
 });
 
 // Middleware de errores (Manejador final de errores internos 500)
-// Se reconoce por tener 4 argumentos (error, req, res, next)
 app.use((error, req, res, next) => {
   console.error(error.stack);
   res.status(500).json({ message: "Error interno del servidor" });
 });
 
-// Iniciar el servidor
+// --- Iniciar el servidor ---
 app.listen(PORT, "192.168.100.19", () => {
   console.log(`🚀 Servidor ejecutándose en http://192.168.100.19:${PORT}`);
 });
